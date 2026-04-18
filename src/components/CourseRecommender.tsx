@@ -1,267 +1,240 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { Toggle } from "@/components/ui/toggle";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
-import { ChevronsUpDown, Loader2, Settings2 } from "lucide-react";
+import { Loader2, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
+import { MultiSelectPopover } from "./MultiSelectPopover";
+import { translations, type Lang } from "@/lib/i18n";
+import { PROGRAMS_SV, PROGRAMS_EN } from "@/lib/programs";
 
-const STUDY_PERIODS = ["sp1", "sp2", "sp3", "sp4", "summer"] as const;
+const STUDY_PERIODS = ["SP1", "SP2", "SP3", "SP4", "Summer"] as const;
 type StudyPeriod = (typeof STUDY_PERIODS)[number];
 
-const PROGRAMS = Array.from({ length: 10 }, (_, i) => `program${i + 1}`);
-
-const ENDPOINT_KEY = "course_recommender_endpoint";
+type TeachingLang = "swedish" | "english" | "both";
 
 export function CourseRecommender() {
+  const [lang, setLang] = useState<Lang>("en");
   const [periods, setPeriods] = useState<StudyPeriod[]>([]);
-  const [programs, setPrograms] = useState<string[]>([]);
+  const [withinPrograms, setWithinPrograms] = useState<string[]>([]);
+  const [hostedByPrograms, setHostedByPrograms] = useState<string[]>([]);
+  const [teachingLang, setTeachingLang] = useState<TeachingLang>("both");
   const [query, setQuery] = useState("");
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
-  const [endpoint, setEndpoint] = useState("");
-  const [endpointDraft, setEndpointDraft] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  useEffect(() => {
-    const saved = localStorage.getItem(ENDPOINT_KEY) ?? "";
-    setEndpoint(saved);
-    setEndpointDraft(saved);
-  }, []);
+  const t = translations[lang];
+  const PROGRAMS = lang === "sv" ? PROGRAMS_SV : PROGRAMS_EN;
 
   const togglePeriod = (p: StudyPeriod) =>
-    setPeriods((prev) =>
-      prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p],
-    );
+    setPeriods((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
 
-  const toggleProgram = (p: string) =>
-    setPrograms((prev) =>
-      prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p],
-    );
-
-  const programLabel = useMemo(() => {
-    if (programs.length === 0) return "All programs";
-    if (programs.length <= 2) return programs.join(", ");
-    return `${programs.length} programs selected`;
-  }, [programs]);
+  const toggleIn = (list: string[], setList: (v: string[]) => void) => (p: string) =>
+    setList(list.includes(p) ? list.filter((x) => x !== p) : [...list, p]);
 
   const handleQuery = async () => {
     if (!query.trim()) {
-      toast.error("Please describe the course you're looking for.");
-      return;
-    }
-    if (!endpoint) {
-      toast.error("Set your API endpoint first (gear icon).");
-      setSettingsOpen(true);
+      toast.error(t.emptyQuery);
       return;
     }
     setLoading(true);
     setResult("");
-    try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+    await new Promise((r) => setTimeout(r, 600));
+    setResult(
+      JSON.stringify(
+        {
           query,
           studyPeriods: periods.length ? periods : STUDY_PERIODS,
-          programs,
-        }),
-      });
-      if (!res.ok) throw new Error(`Request failed (${res.status})`);
-      const contentType = res.headers.get("content-type") ?? "";
-      if (contentType.includes("application/json")) {
-        const data = await res.json();
-        setResult(
-          typeof data === "string"
-            ? data
-            : (data.result ?? data.text ?? JSON.stringify(data, null, 2)),
-        );
-      } else {
-        setResult(await res.text());
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      toast.error(msg);
-      setResult(`Error: ${msg}`);
-    } finally {
-      setLoading(false);
-    }
+          courseWithinProgram: withinPrograms,
+          courseHostedBy: hostedByPrograms,
+          teachingLanguage: teachingLang,
+          pageLanguage: lang,
+        },
+        null,
+        2,
+      ),
+    );
+    setLoading(false);
   };
 
-  const saveEndpoint = () => {
-    localStorage.setItem(ENDPOINT_KEY, endpointDraft.trim());
-    setEndpoint(endpointDraft.trim());
-    setSettingsOpen(false);
-    toast.success("Endpoint saved");
-  };
+  const teachingOptions: { value: TeachingLang; label: string }[] = [
+    { value: "swedish", label: t.swedish },
+    { value: "english", label: t.english },
+    { value: "both", label: t.both },
+  ];
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
-      <header className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            Chalmers Course Recommender
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Describe what you want to learn — get tailored course suggestions.
-          </p>
-        </div>
-        <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="icon" aria-label="Settings">
-              <Settings2 className="h-4 w-4" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-80">
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <Label htmlFor="endpoint">API endpoint</Label>
-                <Input
-                  id="endpoint"
-                  placeholder="https://your-api.example.com/recommend"
-                  value={endpointDraft}
-                  onChange={(e) => setEndpointDraft(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  POSTs JSON {"{ query, studyPeriods, programs }"} and expects{" "}
-                  {"{ result: string }"}.
-                </p>
-              </div>
-              <Button onClick={saveEndpoint} className="w-full">
-                Save
-              </Button>
-            </div>
-          </PopoverContent>
-        </Popover>
-      </header>
+    <div className="relative isolate overflow-hidden">
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Filters</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="space-y-2">
-            <Label>Study period</Label>
-            <div className="flex flex-wrap gap-2">
-              {STUDY_PERIODS.map((p) => (
-                <Toggle
-                  key={p}
-                  pressed={periods.includes(p)}
-                  onPressedChange={() => togglePeriod(p)}
-                  variant="outline"
-                  size="sm"
-                  className="uppercase"
-                >
-                  {p}
-                </Toggle>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Select none to include all periods.
+      {/* Subtle grid texture */}
+      {/*
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 opacity-[0.035]"
+        style={{
+          backgroundImage:
+            "linear-gradient(to right, white 1px, transparent 1px), linear-gradient(to bottom, white 1px, transparent 1px)",
+          backgroundSize: "48px 48px",
+          maskImage: "radial-gradient(ellipse at top, black 30%, transparent 75%)",
+        }}
+      />*/}
+
+      <div className="mx-auto max-w-3xl space-y-10 px-4 py-12 sm:px-6 sm:py-16">
+        <header className="flex items-start justify-between gap-4">
+          <div className="space-y-3">
+            <h1 className="text-4xl font-extrabold leading-[1.05] tracking-tighter text-foreground sm:text-5xl">
+              {t.title}
+            </h1>
+            <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
+              {t.subtitle}
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => setLang(lang === "en" ? "sv" : "en")}
+            aria-label={t.switchTo}
+            title={t.switchTo}
+            className="group inline-flex items-center gap-1 rounded-full border border-border/60 bg-card/60 px-1 py-1 text-xs font-medium backdrop-blur transition-colors hover:border-primary/40"
+          >
+            <span
+              className={`rounded-full px-2.5 py-1 transition-colors ${
+                lang === "en" ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+              }`}
+            >
+              EN
+            </span>
+            <span
+              className={`rounded-full px-2.5 py-1 transition-colors ${
+                lang === "sv" ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+              }`}
+            >
+              SV
+            </span>
+          </button>
+        </header>
 
-          <div className="space-y-2">
-            <Label>Study programs</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="w-full justify-between font-normal"
-                >
-                  <span className="truncate">{programLabel}</span>
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[--radix-popover-trigger-width] p-2">
-                <div className="max-h-64 space-y-1 overflow-y-auto">
-                  {PROGRAMS.map((p) => {
-                    const checked = programs.includes(p);
-                    return (
-                      <label
-                        key={p}
-                        className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent"
-                      >
-                        <Checkbox
-                          checked={checked}
-                          onCheckedChange={() => toggleProgram(p)}
-                        />
-                        <span className="text-sm">{p}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </PopoverContent>
-            </Popover>
-            {programs.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 pt-1">
-                {programs.map((p) => (
-                  <Badge
-                    key={p}
-                    variant="secondary"
-                    className="cursor-pointer"
-                    onClick={() => toggleProgram(p)}
+        <Card className="border-border/60 bg-card/60 shadow-[0_1px_2px_rgba(0,0,0,0.4),0_12px_32px_-12px_rgba(0,0,0,0.5)] backdrop-blur-xl transition-all hover:border-border">
+          <CardHeader className="space-y-1.5">
+            <CardTitle className="text-lg font-semibold">{t.filters}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                {t.studyPeriod}
+              </Label>
+              <MultiSelectPopover
+                options={STUDY_PERIODS}
+                selected={periods}
+                onToggle={(p) => togglePeriod(p as StudyPeriod)}
+                emptyLabel={t.allPeriods}
+                countLabel={t.periodsSelected}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                {t.courseWithinProgram}
+              </Label>
+              <MultiSelectPopover
+                options={PROGRAMS}
+                selected={withinPrograms}
+                onToggle={toggleIn(withinPrograms, setWithinPrograms)}
+                emptyLabel={t.allPrograms}
+                countLabel={t.programsSelected}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                {t.courseHostedBy}
+              </Label>
+              <MultiSelectPopover
+                options={PROGRAMS}
+                selected={hostedByPrograms}
+                onToggle={toggleIn(hostedByPrograms, setHostedByPrograms)}
+                emptyLabel={t.allPrograms}
+                countLabel={t.programsSelected}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                {t.teachingLanguage}
+              </Label>
+              <div className="flex flex-wrap gap-2">
+                {teachingOptions.map((opt) => (
+                  <Toggle
+                    key={opt.value}
+                    pressed={teachingLang === opt.value}
+                    onPressedChange={() => setTeachingLang(opt.value)}
+                    variant="outline"
+                    size="sm"
+                    className="border-border/60 data-[state=on]:border-primary data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
                   >
-                    {p} ✕
-                  </Badge>
+                    {opt.label}
+                  </Toggle>
                 ))}
               </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Describe your ideal course</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Textarea
-            placeholder="e.g. I want a hands-on course about machine learning applied to image data, ideally with a project component."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            rows={5}
-          />
-          <Button
-            onClick={handleQuery}
-            disabled={loading}
-            className="w-full sm:w-auto"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Querying…
-              </>
-            ) : (
-              "Query"
-            )}
-          </Button>
-        </CardContent>
-      </Card>
+        <Card className="border-border/60 bg-card/60 shadow-[0_1px_2px_rgba(0,0,0,0.4),0_12px_32px_-12px_rgba(0,0,0,0.5)] backdrop-blur-xl transition-all hover:border-border">
+          <CardHeader className="space-y-1.5">
+            <CardTitle className="text-lg font-semibold">{t.describe}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Textarea
+              placeholder={t.placeholder}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              rows={5}
+              className="resize-y border-border/60 bg-background/40 text-base leading-relaxed focus-visible:ring-primary/40"
+            />
+            <Button
+              onClick={handleQuery}
+              disabled={loading}
+              size="lg"
+              className="group w-full bg-primary text-primary-foreground shadow-[0_0_0_1px_rgba(255,255,255,0.1),0_4px_12px_-4px_rgba(255,255,255,0.1)] transition-all hover:shadow-[0_0_0_1px_rgba(255,255,255,0.2),0_8px_24px_-8px_rgba(255,255,255,0.2)] sm:w-auto"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t.querying}
+                </>
+              ) : (
+                <>
+                  {t.query}
+                  <ArrowRight className="ml-1 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Recommendations</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Textarea
-            readOnly
-            value={result}
-            placeholder="Results will appear here after you query."
-            rows={12}
-            className="resize-y font-mono text-sm"
-          />
-        </CardContent>
-      </Card>
+        <Card className="border-border/60 bg-card/60 shadow-[0_1px_2px_rgba(0,0,0,0.4),0_12px_32px_-12px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+          <CardHeader className="space-y-1.5">
+            <CardTitle className="text-lg font-semibold">{t.recommendations}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Textarea
+              readOnly
+              value={result}
+              placeholder={t.resultsPlaceholder}
+              rows={12}
+              className="resize-y border-border/60 bg-background/60 font-mono text-sm"
+            />
+          </CardContent>
+        </Card>
+
+        {/*}
+        <footer className="pt-4 text-center text-xs text-muted-foreground">
+          <span className="font-serif italic">Authors</span> · Chalmers Course Compass
+        </footer>
+        */}
+      </div>
     </div>
   );
 }
